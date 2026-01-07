@@ -67,7 +67,6 @@ public class SecureSocketConfig {
                 ctx.peerNetData.flip();
                 SSLEngineResult res = engine.unwrap(ctx.peerNetData, ctx.peerAppData);
                 ctx.peerNetData.compact();
-//                hs = res.getHandshakeStatus();
 
                 handleKeyOperation(key, engine, res);
 
@@ -96,7 +95,6 @@ public class SecureSocketConfig {
             case NEED_WRAP: {
                 ctx.myNetData.clear();
                 SSLEngineResult res = engine.wrap(ctx.myAppData, ctx.myNetData);
-//                hs = res.getHandshakeStatus();
 
                 handleKeyOperation(key, engine, res);
 
@@ -126,7 +124,6 @@ public class SecureSocketConfig {
                 ctx.peerNetData.flip();
                 SSLEngineResult res = engine.unwrap(ctx.peerNetData, ctx.peerAppData);
                 ctx.peerNetData.compact();
-//                hs = res.getHandshakeStatus();
 
                 handleKeyOperation(key, engine, res);
 
