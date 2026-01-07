@@ -3,10 +3,8 @@ package me.kpsantiago.config;
 import javax.net.ssl.*;
 import java.io.FileInputStream;
 import java.io.IOException;
-import java.net.ConnectException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
-import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.security.KeyStore;
 
@@ -48,82 +46,144 @@ public class SecureSocketConfig {
         SocketChannel channel = (SocketChannel) key.channel();
         ConnectionContext ctx = (ConnectionContext) key.attachment();
         SSLEngine engine = ctx.engine;
-        
-        engine.beginHandshake();
+
         SSLEngineResult.HandshakeStatus hs = engine.getHandshakeStatus();
 
-        while(hs != SSLEngineResult.HandshakeStatus.FINISHED && hs != SSLEngineResult.HandshakeStatus.NOT_HANDSHAKING) {
-            switch (hs) {
-                case NEED_UNWRAP: {
-                    key.interestOps(SelectionKey.OP_READ);
-                    if (channel.read(ctx.peerNetData) < 0) {
-                        throw new RuntimeException("Connection closed prematurely");
-                    }
-                    ctx.peerNetData.flip();
-                    SSLEngineResult res = engine.unwrap(ctx.peerNetData, ctx.peerAppData);
-                    ctx.peerNetData.compact();
-                    hs = res.getHandshakeStatus();
+        switch (hs) {
+            case NEED_UNWRAP: {
+                int n = channel.read(ctx.peerNetData);
+                if (n < 0) {
+                    engine.closeOutbound();
+                    channel.close();
+                    key.cancel();
+                    return;
+                }
 
-                    switch (res.getStatus()) {
-                        case OK:
-                            break;
-                        case BUFFER_OVERFLOW:
-                            ctx.peerAppData = enlargeBuffer(ctx.peerAppData, engine.getSession().getApplicationBufferSize());
-                            break;
-                        case BUFFER_UNDERFLOW:
-                            ctx.peerNetData = enlargeBuffer(ctx.peerNetData, engine.getSession().getPacketBufferSize());
-                            break;
-                        case CLOSED:
-                            System.out.println("[INFO] Handshake closed: connection closed.");
-                            engine.closeOutbound();
-                            channel.close();
-                            break;
-                    }
+                if (n == 0) {
+                    key.interestOps(SelectionKey.OP_READ);
+                    return;
                 }
-                case NEED_WRAP: {
-                    key.interestOps(SelectionKey.OP_WRITE);
-                    ctx.myNetData.clear();
-                    SSLEngineResult res = engine.wrap(ctx.myAppData, ctx.myNetData);
-                    hs = res.getHandshakeStatus();
 
-                    switch (res.getStatus()) {
-                        case OK:
-                            ctx.myNetData.flip();
-                            while (ctx.myNetData.hasRemaining()) {
-                                channel.write(ctx.myNetData);
-                            }
-                            break;
-                        case BUFFER_OVERFLOW:
-                            ctx.myNetData = enlargeBuffer(ctx.myNetData, engine.getSession().getPacketBufferSize());
-                            break;
-                        case BUFFER_UNDERFLOW:
-                            throw new SSLException("Incorrect size for buffer.");
-                        case CLOSED:
-                            System.out.println("[INFO] Handshake closed: connection closed.");
-                            engine.closeOutbound();
-                            channel.close();
-                            break;
-                    }
+                ctx.peerNetData.flip();
+                SSLEngineResult res = engine.unwrap(ctx.peerNetData, ctx.peerAppData);
+                ctx.peerNetData.compact();
+//                hs = res.getHandshakeStatus();
+
+                handleKeyOperation(key, engine, res);
+
+                switch (res.getStatus()) {
+                    case OK:
+                        break;
+                    case BUFFER_OVERFLOW:
+                        ctx.peerAppData = enlargeBuffer(ctx.peerAppData, engine.getSession().getApplicationBufferSize());
+                        break;
+                    case BUFFER_UNDERFLOW:
+                        int needed = engine.getSession().getPacketBufferSize();
+                        if (ctx.peerNetData.capacity() < needed) {
+                            ctx.peerNetData = enlargeBuffer(ctx.peerNetData, needed);
+                        }
+                        return;
+                    case CLOSED:
+                        System.out.println("[INFO] Handshake closed: connection closed.");
+                        engine.closeOutbound();
+                        channel.close();
+                        key.cancel();
+                        break;
                 }
-                case NEED_UNWRAP_AGAIN: {
-                    key.interestOps(SelectionKey.OP_READ);
-                    ctx.peerNetData.flip();
-                    SSLEngineResult res = engine.unwrap(ctx.peerNetData, ctx.peerAppData);
-                    ctx.peerNetData.compact();
-                    hs = res.getHandshakeStatus();
-                }
-                case NEED_TASK: {
-                    key.interestOps(SelectionKey.OP_READ);
-                    Runnable task;
-                    if ((task = engine.getDelegatedTask()) != null) {
-                        task.run();
-                    }
-                    hs = engine.getHandshakeStatus();
-                }
+                break;
             }
+
+            case NEED_WRAP: {
+                ctx.myNetData.clear();
+                SSLEngineResult res = engine.wrap(ctx.myAppData, ctx.myNetData);
+//                hs = res.getHandshakeStatus();
+
+                handleKeyOperation(key, engine, res);
+
+                switch (res.getStatus()) {
+                    case OK:
+                        ctx.myNetData.flip();
+                        channel.write(ctx.myNetData);
+
+                        if (ctx.myNetData.hasRemaining()) {
+                            key.interestOps(SelectionKey.OP_WRITE);
+                        }
+
+                        break;
+                    case BUFFER_OVERFLOW:
+                        ctx.myNetData = enlargeBuffer(ctx.myNetData, engine.getSession().getPacketBufferSize());
+                        break;
+                    case CLOSED:
+                        System.out.println("[INFO] Handshake closed: connection closed.");
+                        engine.closeOutbound();
+                        channel.close();
+                        key.cancel();
+                        break;
+                }
+                break;
+            }
+            case NEED_UNWRAP_AGAIN: {
+                ctx.peerNetData.flip();
+                SSLEngineResult res = engine.unwrap(ctx.peerNetData, ctx.peerAppData);
+                ctx.peerNetData.compact();
+//                hs = res.getHandshakeStatus();
+
+                handleKeyOperation(key, engine, res);
+
+                switch (res.getStatus()) {
+                    case OK:
+                        break;
+                    case BUFFER_OVERFLOW:
+                        ctx.peerAppData = enlargeBuffer(ctx.peerAppData, engine.getSession().getApplicationBufferSize());
+                        break;
+                    case BUFFER_UNDERFLOW:
+                        int needed = engine.getSession().getPacketBufferSize();
+                        if (ctx.peerNetData.capacity() < needed) {
+                            ctx.peerNetData = enlargeBuffer(ctx.peerNetData, needed);
+                        }
+                        return;
+                    case CLOSED:
+                        System.out.println("[INFO] Handshake closed: connection closed.");
+                        engine.closeOutbound();
+                        key.cancel();
+                        channel.close();
+                        break;
+                }
+                break;
+            }
+            case NOT_HANDSHAKING:
+            case FINISHED:
+                key.interestOps(SelectionKey.OP_READ);
+                break;
         }
-        key.interestOps(SelectionKey.OP_READ);
     }
+
+    private static void handleKeyOperation(SelectionKey key, SSLEngine engine, SSLEngineResult res) {
+        switch (res.getHandshakeStatus()) {
+            case NEED_UNWRAP,
+                 NEED_UNWRAP_AGAIN,
+                 FINISHED,
+                 NOT_HANDSHAKING:
+                key.interestOps(SelectionKey.OP_READ);
+                break;
+            case NEED_WRAP:
+                key.interestOps(SelectionKey.OP_WRITE);
+                break;
+            case NEED_TASK:
+                Runnable task;
+                while ((task = engine.getDelegatedTask()) != null) {
+                    task.run();
+                }
+                var hs = engine.getHandshakeStatus();
+                if (hs == SSLEngineResult.HandshakeStatus.NEED_WRAP) {
+                    key.interestOps(SelectionKey.OP_WRITE);
+                } else if (hs == SSLEngineResult.HandshakeStatus.NEED_UNWRAP) {
+                    key.interestOps(SelectionKey.OP_READ);
+                }
+                break;
+        }
+    }
+
 
     private static ByteBuffer enlargeBuffer(ByteBuffer buffer, int newCapacity) {
         ByteBuffer newBuffer = ByteBuffer.allocate(newCapacity);

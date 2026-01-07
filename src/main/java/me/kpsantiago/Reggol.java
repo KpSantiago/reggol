@@ -40,64 +40,83 @@ public class Reggol {
                         clientChannel.configureBlocking(false);
 
                         SSLEngine engine = SecureSocketConfig.config();
-                        engine.beginHandshake();
 
                         ConnectionContext ctx = new ConnectionContext(engine);
 
-                        // registra o cliente para leitura
-                        clientChannel.register(selector, SelectionKey.OP_WRITE, ctx);
+                        System.out.println("[INFO] Handshake is beginning");
+                        ctx.engine.beginHandshake();
+
+                        var ops = SelectionKey.OP_READ;
+
+                        if (ctx.engine.getHandshakeStatus() == SSLEngineResult.HandshakeStatus.NEED_WRAP) {
+                            ops = SelectionKey.OP_WRITE;
+                        }
+
+                        clientChannel.register(selector, ops, ctx);
                     }
 
-                    if(key.isReadable()) {
-                        // fazer handshake
-                        SecureSocketConfig.doHandshake(key);
-
-                        SocketChannel clientChannel = (SocketChannel) key.channel();
+                    if (key.isReadable() || key.isWritable()) {
                         ConnectionContext ctx = (ConnectionContext) key.attachment();
                         SSLEngine engine = ctx.engine;
-                        SSLSession session = engine.getSession();
 
-                        int n = clientChannel.read(ctx.peerNetData);
+                        if (!ctx.handshakeDone) {
+                            SecureSocketConfig.doHandshake(key);
+                            SSLEngineResult.HandshakeStatus hs = engine.getHandshakeStatus();
+                            if (hs == SSLEngineResult.HandshakeStatus.FINISHED || hs == SSLEngineResult.HandshakeStatus.NOT_HANDSHAKING)
+                                ctx.handshakeDone = true;
+                        }
 
-                        if (n == -1) {
+                        if (ctx.handshakeDone) {
+                            System.out.println("[INFO] Handshake completed with success");
+                            SocketChannel clientChannel = (SocketChannel) key.channel();
 
-                        } else if (n == 0) {
+                            ctx.peerNetData.clear();
+                            int n = clientChannel.read(ctx.peerNetData);
 
-                        } else {
+                            if (n < 0) {
+                                ctx = null;
+                                clientChannel.close();
+                                key.cancel();
+                                return;
+                            }
+
+                            if (n == 0) {
+                                continue;
+                            }
+
                             ctx.peerNetData.flip();
                             var res = engine.unwrap(ctx.peerNetData, ctx.peerAppData);
+                            ctx.peerNetData.compact();
 
-                            if (res.getStatus() == SSLEngineResult.Status.OK) {
-                                ctx.peerNetData.compact();
+                            if (ctx.peerAppData.hasRemaining() && res.getStatus() == SSLEngineResult.Status.OK) {
+                                var temp = new ByteArrayInputStream(ctx.peerAppData.array());
+                                var result = new BufferedReader(new InputStreamReader(temp, StandardCharsets.UTF_8));
+                                SyslogMessage msg = SyslogMessage.createFromString(result.readLine());
 
-                                if (ctx.peerAppData.hasRemaining()) {
-                                    var temp = new ByteArrayInputStream(ctx.peerAppData.array());
-                                    var result = new BufferedReader(new InputStreamReader(temp, StandardCharsets.UTF_8));
-                                    SyslogMessage msg = SyslogMessage.createFromString(result.readLine());
-                                    writeLog(msg);
-                                }
+                                writeLog(msg);
+
+                                String response = "OK/n";
+                                ctx.myAppData = ByteBuffer.wrap(response.getBytes());
+                                ctx.myAppData.flip();
+                                clientChannel.write(ctx.myAppData);
+                                ctx.myAppData.compact();
+
+                                ctx = null;
+                                clientChannel.close();
+                                key.cancel();
+
+                                System.out.println("[INFO] Connection closed with a success operation\n==================");
                             }
                         }
                     }
                 }
+
             }
         } catch (IOException e) {
             e.printStackTrace();
         } catch (Exception e) {
             e.printStackTrace();
         }
-//        while (true) {
-//            try (SSLServerSocket serverSocket = (SSLServerSocket) SecureSocketConfig.config().createServerSocket(888, 50, InetAddress.getByName("127.0.0.1"))) {
-//                serverSocket.setNeedClientAuth(true);
-//
-//                SSLSocket client = (SSLSocket) serverSocket.accept();
-//                var result = new BufferedReader(new InputStreamReader(client.getInputStream()));
-//                SyslogMessage msg = SyslogMessage.createFromString(result.readLine());
-//                writeLog(msg);
-//            } catch (Exception e) {
-//                e.printStackTrace();
-//            }
-//        }
     }
 
     private static void writeLog(SyslogMessage log) {

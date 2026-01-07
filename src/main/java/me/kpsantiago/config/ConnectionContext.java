@@ -10,6 +10,7 @@ public class ConnectionContext {
     public ByteBuffer peerAppData;
     public ByteBuffer myAppData;
     public ByteBuffer myNetData;
+    public boolean handshakeDone;
 
     public ConnectionContext(SSLEngine engine) {
         this.engine = engine;
@@ -18,5 +19,6 @@ public class ConnectionContext {
         this.peerNetData = ByteBuffer.allocate(session.getPacketBufferSize());
         this.peerAppData = ByteBuffer.allocate(session.getApplicationBufferSize());
         this.myAppData = ByteBuffer.allocate(session.getApplicationBufferSize());
+        this.handshakeDone = false;
     }
 }
