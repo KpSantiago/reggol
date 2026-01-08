@@ -86,7 +86,7 @@ public class Reggol {
 
                             ctx.peerNetData.flip();
                             var res = engine.unwrap(ctx.peerNetData, ctx.peerAppData);
-                            ctx.peerNetData.compact();
+                            ctx.peerNetData.clear();
 
                             if (ctx.peerAppData.hasRemaining() && res.getStatus() == SSLEngineResult.Status.OK) {
                                 var temp = new ByteArrayInputStream(ctx.peerAppData.array());
@@ -98,19 +98,34 @@ public class Reggol {
                                 String response = "OK/n";
                                 ctx.myAppData = ByteBuffer.wrap(response.getBytes());
                                 ctx.myAppData.flip();
-                                clientChannel.write(ctx.myAppData);
-                                ctx.myAppData.compact();
 
-                                ctx = null;
+                                engine.wrap(ctx.myAppData, ctx.myNetData);
+                                ctx.myAppData.clear();
+
+                                ctx.myNetData.flip();
+                                clientChannel.write(ctx.myNetData);
+                                ctx.myNetData.clear();
+
+
+                                engine.closeOutbound();
+                                engine.wrap(ByteBuffer.allocate(0), ctx.myNetData);
+                                ctx.myNetData.flip();
+                                clientChannel.write(ctx.myNetData);
+                                ctx.myNetData.clear();
+
+                                ctx.peerNetData.clear();
+                                ctx.peerAppData.clear();
+                                ctx.myAppData.clear();
+                                ctx.myNetData.clear();
+
                                 clientChannel.close();
                                 key.cancel();
 
-                                System.out.println("[INFO] Connection closed with a success operation\n==================");
+                                System.out.println("[INFO] Connection closed with a success operation\n==================   ");
                             }
                         }
                     }
                 }
-
             }
         } catch (IOException e) {
             e.printStackTrace();

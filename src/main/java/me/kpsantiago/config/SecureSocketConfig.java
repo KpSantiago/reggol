@@ -1,5 +1,7 @@
 package me.kpsantiago.config;
 
+import lombok.Value;
+
 import javax.net.ssl.*;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -9,8 +11,10 @@ import java.nio.channels.SocketChannel;
 import java.security.KeyStore;
 
 public class SecureSocketConfig {
+    private static final String password = System.getenv("SECRET_PASS");
+
     public static SSLEngine config() throws Exception {
-        char[] passphrase = "passphrase".toCharArray();
+        char[] passphrase = password.toCharArray();
 
         // Key Material -> identify the server
         KeyStore ksKeys = KeyStore.getInstance("JKS");
