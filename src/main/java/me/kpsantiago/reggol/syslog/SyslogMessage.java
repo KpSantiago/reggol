@@ -1,4 +1,4 @@
-package me.kpsantiago.syslog;
+package me.kpsantiago.reggol.syslog;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;

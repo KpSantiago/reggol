@@ -1,4 +1,4 @@
-package me.kpsantiago.models;
+package me.kpsantiago.reggol.models;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;

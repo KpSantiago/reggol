@@ -1,4 +1,4 @@
-package me.kpsantiago.config;
+package me.kpsantiago.reggol.config;
 
 import javax.net.ServerSocketFactory;
 import javax.net.ssl.KeyManagerFactory;

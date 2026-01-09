@@ -1,8 +1,8 @@
-package me.kpsantiago;
+package me.kpsantiago.reggol;
 
-import me.kpsantiago.config.SecureSocketConfig;
-import me.kpsantiago.models.ClientCredentials;
-import me.kpsantiago.syslog.SyslogMessage;
+import me.kpsantiago.reggol.config.SecureSocketConfig;
+import me.kpsantiago.reggol.models.ClientCredentials;
+import me.kpsantiago.reggol.syslog.SyslogMessage;
 import org.passay.CharacterRule;
 import org.passay.EnglishCharacterData;
 import org.passay.PasswordGenerator;
